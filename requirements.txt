@@ -1,0 +1,12 @@
+torch>=2.0.0
+transformers
+datasets
+tokenizers
+wandb
+numpy
+# Το nanotron συνήθως το κάνουμε install από source, 
+# αλλά το βάζουμε εδώ για να θυμόμαστε τα dependencies του.
+packaging
+pyyaml
+ninja 
+flash-attn>=2.5.0
