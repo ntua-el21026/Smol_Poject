@@ -1,0 +1,120 @@
+general:
+  project: llama200m_slimpajama
+  seed: 42
+
+model:
+  ddp_bucket_cap_mb: 25
+  dtype: bfloat16
+  init_method:
+    std: 0.02
+  make_vocab_size_divisible_by: 1
+  model_config:
+    # LLaMA-style
+    is_llama_config: true
+
+    # ~200M proxy architecture
+    hidden_size: 1024
+    num_hidden_layers: 13
+    num_attention_heads: 16
+    num_key_value_heads: 16
+    intermediate_size: 2752
+
+    # context
+    max_position_embeddings: 2048
+
+    # misc
+    hidden_act: silu
+    rms_norm_eps: 1.0e-05
+    rope_theta: 10000.0
+    rope_scaling: null
+    tie_word_embeddings: true
+    use_cache: true
+    pretraining_tp: 1
+    initializer_range: 0.02
+
+    # tokenizer-special tokens (τυπικές τιμές LLaMA HF tokenizers)
+    bos_token_id: 1
+    eos_token_id: 2
+    pad_token_id: null
+
+    # IMPORTANT: βάλε vocab_size που ταιριάζει στον tokenizer σου (συχνά 32000/32001/128256 κ.λπ.)
+    vocab_size: 32000
+
+optimizer:
+  accumulate_grad_in_fp32: true
+  clip_grad: 1.0
+  learning_rate_scheduler:
+    learning_rate: 0.0003
+    lr_decay_style: cosine
+    lr_warmup_style: linear
+    lr_warmup_steps: 200
+    min_decay_lr: 3.0e-05
+  optimizer_factory:
+    name: adamW
+    torch_adam_is_fused: true
+    adam_beta1: 0.9
+    adam_beta2: 0.95
+    adam_eps: 1.0e-08
+  weight_decay: 0.1
+  zero_stage: 1
+
+parallelism:
+  # Leonardo: 1 node / 4 GPUs => απλό DP για Stage 1
+  dp: 4
+  tp: 1
+  pp: 1
+  pp_engine: 1f1b
+  expert_parallel_size: 1
+  tp_linear_async_communication: false
+  tp_mode: REDUCE_SCATTER
+
+tokenizer:
+  tokenizer_max_length: null
+  # Βάλε εδώ τον HF tokenizer που θα χρησιμοποιήσεις (π.χ. meta-llama/Llama-2-7b-hf)
+  tokenizer_name_or_path: meta-llama/Llama-2-7b-hf
+  tokenizer_revision: null
+
+data_stages:
+- name: Stage 1 - SlimPajama
+  start_training_step: 1
+  data:
+    dataset:
+      dataset_overwrite_cache: false
+      dataset_processing_num_proc_per_process: 8
+      hf_dataset_config_name: null
+      hf_dataset_or_datasets: cerebras/SlimPajama-627B
+      hf_dataset_splits: train
+      text_column_name: text
+    num_loading_workers: 4
+    seed: 42
+
+lighteval: null
+
+tokens:
+  # Stage 1 context (κρατάμε 2048 για throughput/σταθερότητα σε 4×A100)
+  sequence_length: 2048
+
+  # Ρύθμισε αυτά δύο για να χωράει στη GPU (ξεκίνα συντηρητικά)
+  micro_batch_size: 2
+  batch_accumulation_per_replica: 8
+
+  # TRAIN STEPS: θα το βάλεις με βάση token budget (βλ. παρακάτω).
+  train_steps: 30517
+
+  # χωρίς validation στο Stage 1 bring-up
+  val_check_interval: -1
+  limit_val_batches: 0
+  limit_test_batches: 0
+
+logging:
+  iteration_step_info_interval: 10
+  log_level: info
+  log_level_replica: info
+
+checkpoints:
+  checkpoint_interval: 1000
+  # Βάλε shared filesystem path στο Leonardo (π.χ. $SCRATCH ή $WORK)
+  checkpoints_path: /scratch/$USER/llama200m_stage1_ckpts
+  resume_checkpoint_path: null
+
+profiler: null
