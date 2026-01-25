@@ -1,113 +1,79 @@
-checkpoints:
-  checkpoint_interval: 500
-  checkpoints_path: /scratch/$USER/ckpts_tinyllama1b_finewebedu
-  checkpoints_path_is_shared_file_system: true
-  resume_checkpoint_path: null
-  save_initial_state: false
-
-data_stages:
-- name: FineWeb-Edu Stage (200M tokens)
-  start_training_step: 1
-  data:
-    dataset:
-      dataset_overwrite_cache: false
-      dataset_processing_num_proc_per_process: 8
-      hf_dataset_or_datasets: HuggingFaceFW/fineweb-edu
-      hf_dataset_config_name: null
-      hf_dataset_splits: train
-      text_column_name: text
-    num_loading_workers: 4
-    seed: 42
-
 general:
-  ignore_sanity_checks: false
-  project: tinyllama1b_finewebedu
-  run: stage1_200Mtok
+  project: leonardo_stage1
+  run: slimpajama_30B
   seed: 42
-
-lighteval: null
-
-logging:
-  iteration_step_info_interval: 10
-  log_level: info
-  log_level_replica: info
+  ignore_sanity_checks: false
 
 model:
-  ddp_bucket_cap_mb: 25
-  dtype: bfloat16
-  init_method:
-    std: 0.025
-  make_vocab_size_divisible_by: 1
+  make_vocab_size_divisible_by: 128
   model_config:
-    # (KEEP AS-IS: tiny llama model)
-    bos_token_id: 1
-    eos_token_id: 2
-    hidden_act: silu
-    hidden_size: 2048
-    initializer_range: 0.02
-    intermediate_size: 11008
     is_llama_config: true
-    max_position_embeddings: 4096
+    hidden_size: 1024
+    num_hidden_layers: 16
     num_attention_heads: 16
-    num_hidden_layers: 28
-    num_key_value_heads: 2
-    pad_token_id: null
-    pretraining_tp: 1
+    num_key_value_heads: 16
+    intermediate_size: 2752
+    max_position_embeddings: 2048
+    hidden_act: silu
     rms_norm_eps: 1.0e-05
-    rope_scaling: null
+    rope_theta: 10000.0
     tie_word_embeddings: true
-    use_cache: true
-    vocab_size: 128256
+    vocab_size: 128256 # Llama 3
+    initializer_range: 0.02
 
 optimizer:
   accumulate_grad_in_fp32: true
   clip_grad: 1.0
   learning_rate_scheduler:
-    learning_rate: 0.0003
-    lr_decay_starting_step: null
-    lr_decay_steps: 3052
+    learning_rate: 0.0005
     lr_decay_style: cosine
-    lr_warmup_steps: 50
-    lr_warmup_style: linear
-    min_decay_lr: 1.0e-05
+    lr_warmup_steps: 1000
+    min_decay_lr: 5.0e-05 # Δεν μηδενίζουμε για να συνεχίσουμε Stage 2
   optimizer_factory:
+    name: adamW
+    torch_adam_is_fused: true
     adam_beta1: 0.9
     adam_beta2: 0.95
     adam_eps: 1.0e-08
-    name: adamW
-    torch_adam_is_fused: true
-  weight_decay: 0.01
+  weight_decay: 0.1
   zero_stage: 0
 
 parallelism:
-  # Leonardo 1 node / 4 GPUs => world size must be 4
   dp: 4
   tp: 1
   pp: 1
-  pp_engine: 1f1b
-  expert_parallel_size: 1
-  tp_linear_async_communication: true
   tp_mode: REDUCE_SCATTER
 
-profiler: null
-
-tokenizer:
-  tokenizer_max_length: null
-  # IMPORTANT: χρησιμοποίησε Llama 3 tokenizer (128256 vocab) για να ταιριάζει με vocab_size: 128256
-  tokenizer_name_or_path: meta-llama/Meta-Llama-3-8B
-  tokenizer_revision: null
+data_stages:
+- name: Stage 1 - SlimPajama Packed
+  start_training_step: 1
+  data:
+    dataset:
+      dataset_overwrite_cache: false
+      # Εδώ θα βάλουμε το path του τοπικού NVMe 
+      dataset_path: /tmp/slimpajama_local/train 
+      text_column_name: input_ids
+  num_loading_workers: 4
+  seed: 42
 
 tokens:
-  sequence_length: 4096
+  sequence_length: 2048
+  micro_batch_size: 32
+  batch_accumulation_per_replica: 2
+  
+  # GBS = 256 seqs -> 0.5M tokens/step
+  # 30B Tokens / 0.5M = 60,000 steps
+  train_steps: 60000
+  
+  val_check_interval: 2000
+  limit_val_batches: 50
 
-  # πιο ασφαλές για 1B + 4k context
-  micro_batch_size: 1
-  batch_accumulation_per_replica: 4
+checkpoints:
+  checkpoint_interval: 2000
+  checkpoints_path: /scratch/$USER/ckpts/stage1
+  save_initial_state: false
+  checkpoints_path_is_shared_file_system: true
 
-  # ~200M tokens target:
-  # tokens/step = 4096*1*4*dp(4)=65536 => steps ~ 3052
-  train_steps: 3052
-
-  val_check_interval: -1
-  limit_val_batches: 0
-  limit_test_batches: 0
+logging:
+  iteration_step_info_interval: 10
+  log_level: info
