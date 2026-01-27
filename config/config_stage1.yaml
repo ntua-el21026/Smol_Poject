@@ -25,7 +25,7 @@ optimizer:
   accumulate_grad_in_fp32: true
   clip_grad: 1.0
   learning_rate_scheduler:
-    learning_rate: 0.0005
+    learning_rate: 0.0003
     lr_decay_style: cosine
     lr_warmup_steps: 1000
     min_decay_lr: 5.0e-05 # Δεν μηδενίζουμε για να συνεχίσουμε Stage 2
@@ -77,4 +77,5 @@ checkpoints:
 logging:
   iteration_step_info_interval: 10
   log_level: info
+
   log_level_replica: info
