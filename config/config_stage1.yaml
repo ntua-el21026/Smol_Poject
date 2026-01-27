@@ -53,13 +53,13 @@ data_stages:
       # Εδώ θα βάλουμε το path του τοπικού NVMe 
       dataset_path: /tmp/slimpajama_local
       text_column_name: input_ids
-  num_loading_workers: 4
-  seed: 42
+    num_loading_workers: 4
+    seed: 42
 
 tokens:
   sequence_length: 2048
-  micro_batch_size: 32
-  batch_accumulation_per_replica: 2
+  micro_batch_size: 4
+  batch_accumulation_per_replica: 16
   
   # GBS = 256 seqs -> 0.5M tokens/step
   # 10B Tokens / 0.5M = 20,000 steps
@@ -79,3 +79,4 @@ logging:
   log_level: info
 
   log_level_replica: info
+
