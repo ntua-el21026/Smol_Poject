@@ -57,6 +57,7 @@ echo "Data copy finished in $((end_time - start_time)) seconds."
 CHECKPOINT_PATH="/leonardo_scratch/large/userexternal/mpeppas0/checkpoints/stage1"
 mkdir -p $CHECKPOINT_PATH
 
+export CUDA_DEVICE_MAX_CONNECTIONS=1  # <--- ΣΗΜΑΝΤΙΚΟ ΓΙΑ NANOTRON
 # --- 4. Launch Training ---
 echo "--- [3] Launching Nanotron Training ---"
 
