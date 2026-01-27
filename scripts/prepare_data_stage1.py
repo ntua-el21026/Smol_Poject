@@ -1,95 +1,107 @@
 import os
 import argparse
 import time
+import glob
 from datasets import load_dataset, Dataset
 from transformers import AutoTokenizer
 from tqdm import tqdm
 
-# Ρυθμίσεις
+# --- ΡΥΘΜΙΣΕΙΣ ---
 TOKENIZER_ID = "meta-llama/Meta-Llama-3-8B"
 BLOCK_SIZE = 2048
+CHUNK_SIZE = 200000  # Σώζουμε κάθε 200.000 δείγματα (περίπου κάθε 15-20 λεπτά)
 
 def main():
     parser = argparse.ArgumentParser()
-    # Αποθήκευση στο SCRATCH (γρήγορος shared δίσκος)
     default_output = os.path.join(os.getenv('SCRATCH', '.'), 'data/stage1_slimpajama_packed')
     parser.add_argument("--output_dir", type=str, default=default_output)
-    # Στόχος: ~30 Billion Tokens. 
-    # Υποθέτουμε μέσο όρο ~1000 tokens ανά κείμενο στο SlimPajama -> 30M samples
+    parser.add_argument("--skip", type=int, default=0, help="Number of samples to skip (to avoid duplicates)")
     parser.add_argument("--num_samples", type=int, default=30000000) 
     args = parser.parse_args()
 
-    print(f"--- Data Preparation Started ---")
+    # Δημιουργία φακέλου εξόδου
+    os.makedirs(args.output_dir, exist_ok=True)
+
+    print(f"--- Data Preparation (Chunked Mode) ---")
     print(f"Output Dir: {args.output_dir}")
-    print(f"Target Samples: {args.num_samples}")
 
-    # 1. Tokenizer Setup
-    print(f"Loading Tokenizer: {TOKENIZER_ID}")
-    try:
-        tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_ID)
-    except Exception as e:
-        print("\nERROR: Δεν μπόρεσα να φορτώσω τον Llama 3 Tokenizer.")
-        print("Έχεις κάνει 'huggingface-cli login'; Έχεις πάρει access στο Llama 3 στο site;")
-        raise e
+    # 1. Έλεγχος για Resume (Τι έχουμε κάνει ήδη;)
+    print(f"Target: {args.num_output_sequences} sequences x 2048 tokens = {args.num_output_sequences * 2048 / 1e9:.2f} Billion Tokens")
+    print(f"Skipping first {args.skip_raw_docs} RAW documents...")
 
+
+    # 2. Tokenizer
+    tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_ID)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    # 2. Dataset Loading (Streaming)
-    print("Opening SlimPajama Stream...")
+    # 3. Load Dataset (Streaming)
     ds_stream = load_dataset("cerebras/SlimPajama-627B", split="train", streaming=True)
+    
+    # 3. Explicit Skip (Το πιο σημαντικό σημείο)
+    if args.skip_raw_docs > 0:
+        ds_stream = ds_stream.skip(args.skip_raw_docs)
 
-    # 3. Packing Generator Logic
-    def pack_data_generator():
-        current_buffer = []
-        count = 0
-        start_time = time.time()
-        
-        # tqdm progress bar
-        iterator = iter(ds_stream)
-        pbar = tqdm(total=args.num_samples, desc="Processing Docs")
+    # 4. Processing Loop
+    current_buffer = []      # Tokens buffer for packing
+    batch_data = []          # List of packed dicts for the current chunk
+# Μετρητές
+    raw_docs_processed = 0
+    sequences_created = 0
+    chunk_idx = 0
+    
+    iterator = iter(ds_stream)
+    pbar = tqdm(total=args.num_output_sequences, desc="Packed Seqs Created", unit="seq")
+    while sequences_created < args.num_output_sequences:
+        try:
+            example = next(iterator)
+            raw_docs_processed += 1
+        except StopIteration:
+            print("Dataset finished (End of Stream)!")
+            break
 
-        while count < args.num_samples:
-            try:
-                example = next(iterator)
-            except StopIteration:
-                break
+        # Tokenize
+        tokens = tokenizer(example["text"])["input_ids"]
+        tokens.append(tokenizer.eos_token_id)
+        current_buffer.extend(tokens)
 
-            # Tokenize & Add EOS
-            tokens = tokenizer(example["text"])["input_ids"]
-            tokens.append(tokenizer.eos_token_id)
-            current_buffer.extend(tokens)
+        # Packing Logic (κόβουμε σε BLOCK_SIZE)
+        while len(current_buffer) >= BLOCK_SIZE:
+            block = current_buffer[:BLOCK_SIZE]
+            current_buffer = current_buffer[BLOCK_SIZE:]
             
-            count += 1
+            # Προσθήκη στο τρέχον chunk
+            batch_data.append({"input_ids": block})
+            sequences_created += 1
             pbar.update(1)
 
-            # Όσο ο buffer έχει αρκετά tokens για ένα block, κόβε και δίνε
-            while len(current_buffer) >= BLOCK_SIZE:
-                yield {"input_ids": current_buffer[:BLOCK_SIZE]}
-                current_buffer = current_buffer[BLOCK_SIZE:]
+            # ΕΛΕΓΧΟΣ: Γέμισε το Chunk; Ώρα για Save!
+            if len(batch_data) >= CHUNK_SIZE:
+                save_chunk(batch_data, args.output_dir, chunk_idx)
+                batch_data = [] # Καθαρισμός μνήμης
+                chunk_idx += 1
         
-        pbar.close()
-        elapsed = time.time() - start_time
-        print(f"\nFinished processing {count} documents in {elapsed/3600:.2f} hours.")
 
-    # 4. Execution & Save
-    print("Starting processing... (This will take hours)")
-    final_ds = Dataset.from_generator(pack_data_generator)
-    
-    # Split Train/Val (99.5% Train, 0.5% Val)
-    print("Splitting dataset...")
-    splits = final_ds.train_test_split(test_size=0.005, seed=42)
-    
-    train_path = os.path.join(args.output_dir, "train")
-    val_path = os.path.join(args.output_dir, "val")
+    # Σώσε ό,τι περίσσεψε στο τέλος (αν υπάρχει)
+    if len(batch_data) > 0:
+        save_chunk(batch_data, args.output_dir, chunk_idx)
 
-    print(f"Saving Train to {train_path}...")
-    splits["train"].save_to_disk(train_path)
+    pbar.close()
+    print("\n" + "="*40)
+    print(f"--- SUCCESS: Job Finished ---")
+    print(f"Total RAW documents consumed: {raw_docs_processed}")
+    print(f"Next Job (Part X) should start with --skip_raw_docs {args.skip_raw_docs + raw_docs_processed}")
+    print("="*40)
+
+def save_chunk(data, output_dir, idx):
+    """Βοηθητική συνάρτηση για αποθήκευση"""
+    save_path = os.path.join(output_dir, f"part_{idx:05d}") # π.χ. part_00001
+    print(f"\nSaving chunk {idx} to {save_path}...")
     
-    print(f"Saving Validation to {val_path}...")
-    splits["test"].save_to_disk(val_path)
-    
-    print("--- SUCCESS: Data is ready for Nanotron! ---")
+    # Μετατροπή σε HuggingFace Dataset και save
+    temp_ds = Dataset.from_list(data)
+    temp_ds.save_to_disk(save_path)
+    print("Saved!")
 
 if __name__ == "__main__":
     main()
