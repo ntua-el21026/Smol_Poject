@@ -65,8 +65,6 @@ tokens:
   # 10B Tokens / 0.5M = 20,000 steps
   train_steps: 20000
   
-  val_check_interval: 2000
-  limit_val_batches: 50
 
 checkpoints:
   checkpoint_interval: 2000
