@@ -1,0 +1,56 @@
+# Project path: .gitignore
+# Python caches
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+*.egg-info/
+.eggs/
+.cache/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Virtual environments
+.venv/
+venv/
+env/
+.env
+.env.*
+
+# Logs & outputs
+*.log
+*.out
+*.err
+logs/
+output/
+outputs/
+runs/
+wandb/
+lightning_logs/
+tensorboard/
+checkpoints/
+ckpts/
+results/
+models/
+
+# Data artifacts
+data/
+datasets/
+tmp/
+temp/
+
+# Build artifacts
+build/
+dist/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Generated docs/project reports
+docs/project/project_structure.txt
+docs/project/project_analytics.txt
