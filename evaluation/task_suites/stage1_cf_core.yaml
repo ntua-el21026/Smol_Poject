@@ -1,0 +1,32 @@
+version: 1
+subset_size: 1000
+seed: 42
+tasks:
+  - name: hellaswag
+    hf_dataset: hellaswag
+    split: validation
+    streaming: false
+    shuffle: true
+  - name: piqa
+    hf_dataset: piqa
+    split: validation
+    streaming: false
+    shuffle: true
+  - name: winogrande
+    hf_dataset: winogrande
+    hf_config: winogrande_xl
+    split: validation
+    streaming: false
+    shuffle: true
+  - name: arc_easy
+    hf_dataset: ai2_arc
+    hf_config: ARC-Easy
+    split: validation
+    streaming: false
+    shuffle: true
+  - name: openbookqa
+    hf_dataset: openbookqa
+    hf_config: main
+    split: validation
+    streaming: false
+    shuffle: true
