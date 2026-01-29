@@ -1,0 +1,29 @@
+version: 1
+sequence_length: 2048
+target_tokens_total: 2400000
+slices:
+  - name: general_web
+    hf_dataset: allenai/c4
+    hf_config: en
+    split: train
+    text_field: text
+    streaming: true
+    shuffle: true
+    seed: 42
+    target_tokens: 800000
+  - name: code
+    hf_dataset: codeparrot/codeparrot-clean
+    split: train
+    text_field: content
+    streaming: true
+    shuffle: true
+    seed: 42
+    target_tokens: 800000
+  - name: books_newslike
+    hf_dataset: bookcorpusopen
+    split: train
+    text_field: text
+    streaming: true
+    shuffle: true
+    seed: 42
+    target_tokens: 800000
